@@ -247,6 +247,8 @@ class MergeResolverApp(App):
     
     BINDINGS = [
         Binding("tab", "cycle_focus", "Switch Panel", show=True),
+        Binding("h", "focus_left", "← Panel", show=True, priority=True),
+        Binding("l", "focus_right", "→ Panel", show=True, priority=True),
         Binding("q", "quit", "Quit", show=True),
         Binding("c", "commit", "Commit", show=True),
     ]
@@ -359,6 +361,46 @@ class MergeResolverApp(App):
     
     def action_cycle_focus(self) -> None:
         """Cycle focus between panels."""
+        # Get all focusable widgets
+        focusable = [self.file_list_panel, self.diff_view_panel, self.ai_panel]
+        focusable = [w for w in focusable if w is not None]
+        
+        if not focusable:
+            return
+        
+        # Find current focused widget
+        current = self.focused
+        
+        if current in focusable:
+            current_idx = focusable.index(current)
+            next_idx = (current_idx + 1) % len(focusable)
+            focusable[next_idx].focus()
+        else:
+            # Focus first panel
+            focusable[0].focus()
+    
+    def action_focus_left(self) -> None:
+        """Focus the panel to the left (vim h motion)."""
+        # Get all focusable widgets
+        focusable = [self.file_list_panel, self.diff_view_panel, self.ai_panel]
+        focusable = [w for w in focusable if w is not None]
+        
+        if not focusable:
+            return
+        
+        # Find current focused widget
+        current = self.focused
+        
+        if current in focusable:
+            current_idx = focusable.index(current)
+            prev_idx = (current_idx - 1) % len(focusable)
+            focusable[prev_idx].focus()
+        else:
+            # Focus first panel
+            focusable[0].focus()
+    
+    def action_focus_right(self) -> None:
+        """Focus the panel to the right (vim l motion)."""
         # Get all focusable widgets
         focusable = [self.file_list_panel, self.diff_view_panel, self.ai_panel]
         focusable = [w for w in focusable if w is not None]

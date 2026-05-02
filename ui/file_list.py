@@ -58,6 +58,7 @@ class FileListPanel(Widget):
         super().__init__()
         self.hunks = hunks
         self.selected_index = 0
+        self._last_key = None  # Track last key for gg motion
         self._group_hunks()
     
     def _group_hunks(self) -> None:
@@ -117,21 +118,46 @@ class FileListPanel(Widget):
         return row
     
     def on_key(self, event) -> None:
-        """Handle keyboard navigation."""
+        """Handle keyboard navigation with vim motions."""
         if not self.filenames:
             return
         
-        if event.key == "up":
+        # Vim motions: j/k for down/up
+        if event.key in ("up", "k"):
             self.selected_index = max(0, self.selected_index - 1)
             self._refresh_rows()
+            self._last_key = None
             event.prevent_default()
-        elif event.key == "down":
+        elif event.key in ("down", "j"):
             self.selected_index = min(len(self.filenames) - 1, self.selected_index + 1)
             self._refresh_rows()
+            self._last_key = None
+            event.prevent_default()
+        # Vim motions: gg for first, G for last
+        elif event.key == "g":
+            if self._last_key == "g":
+                # gg - go to first file
+                self.selected_index = 0
+                self._refresh_rows()
+                self._last_key = None
+                event.prevent_default()
+            else:
+                # First g, wait for second
+                self._last_key = "g"
+                event.prevent_default()
+        elif event.key == "G":
+            # G - go to last file
+            self.selected_index = len(self.filenames) - 1
+            self._refresh_rows()
+            self._last_key = None
             event.prevent_default()
         elif event.key in ("enter", "space"):
             self._select_current_file()
+            self._last_key = None
             event.prevent_default()
+        else:
+            # Reset gg sequence on any other key
+            self._last_key = None
     
     def _refresh_rows(self) -> None:
         """Refresh the display to show updated selection."""

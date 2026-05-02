@@ -73,8 +73,8 @@ def _call_watsonx(prompt: str, api_key: str) -> dict:
     # Get IAM token
     token = _get_iam_token(api_key)
     
-    # Call watsonx.ai
-    url = "https://us-south.ml.cloud.ibm.com/ml/v1/text/generation?version=2023-05-29"
+    # Call watsonx.ai chat API
+    url = "https://us-south.ml.cloud.ibm.com/ml/v1/text/chat?version=2023-05-29"
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
@@ -82,22 +82,24 @@ def _call_watsonx(prompt: str, api_key: str) -> dict:
     }
     
     payload = {
-        "input": prompt,
-        "parameters": {
-            "max_new_tokens": 300,
-            "temperature": 0.1,
-            "decoding_method": "greedy"
-        },
-        "model_id": "ibm/granite-3-3-8b-instruct",
-        "project_id": os.getenv("WATSONX_PROJECT_ID", "")
+        "messages": [
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        "model_id": "meta-llama/llama-3-3-70b-instruct",
+        "project_id": os.getenv("WATSONX_PROJECT_ID", ""),
+        "max_tokens": 300,
+        "temperature": 0.1,
     }
     
     response = requests.post(url, headers=headers, json=payload, timeout=30)
     response.raise_for_status()
     
-    # Extract generated text
+    # Extract generated text from chat response
     result = response.json()
-    generated_text = result["results"][0]["generated_text"].strip()
+    generated_text = result["choices"][0]["message"]["content"].strip()
     
     # Parse JSON response
     # Handle potential markdown code blocks

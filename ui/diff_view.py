@@ -83,6 +83,7 @@ class DiffViewPanel(Widget):
         super().__init__()
         self.hunks = hunks or []
         self.current_hunk_index = 0
+        self._last_key = None  # Track last key for gg motion
     
     def compose(self) -> ComposeResult:
         """Compose the diff view."""
@@ -183,42 +184,76 @@ class DiffViewPanel(Widget):
                 scroll.mount(widget)
     
     def on_key(self, event) -> None:
-        """Handle keyboard navigation and actions."""
+        """Handle keyboard navigation and actions with vim motions."""
         if not self.hunks:
             return
         
-        if event.key == "n":
+        # Vim motions: j for next, k for previous (in addition to n/p)
+        if event.key in ("n", "j"):
             # Next hunk
             old_index = self.current_hunk_index
             self.current_hunk_index = min(len(self.hunks) - 1, self.current_hunk_index + 1)
             self._refresh_view()
             if old_index != self.current_hunk_index:
                 self.post_message(HunkChanged(self.hunks[self.current_hunk_index]))
+            self._last_key = None
             event.prevent_default()
-        elif event.key == "p":
+        elif event.key in ("p", "k"):
             # Previous hunk
             old_index = self.current_hunk_index
             self.current_hunk_index = max(0, self.current_hunk_index - 1)
             self._refresh_view()
             if old_index != self.current_hunk_index:
                 self.post_message(HunkChanged(self.hunks[self.current_hunk_index]))
+            self._last_key = None
+            event.prevent_default()
+        # Vim motions: gg for first, G for last
+        elif event.key == "g":
+            if self._last_key == "g":
+                # gg - go to first hunk
+                old_index = self.current_hunk_index
+                self.current_hunk_index = 0
+                self._refresh_view()
+                if old_index != self.current_hunk_index:
+                    self.post_message(HunkChanged(self.hunks[self.current_hunk_index]))
+                self._last_key = None
+                event.prevent_default()
+            else:
+                # First g, wait for second
+                self._last_key = "g"
+                event.prevent_default()
+        elif event.key == "G":
+            # G - go to last hunk
+            old_index = self.current_hunk_index
+            self.current_hunk_index = len(self.hunks) - 1
+            self._refresh_view()
+            if old_index != self.current_hunk_index:
+                self.post_message(HunkChanged(self.hunks[self.current_hunk_index]))
+            self._last_key = None
             event.prevent_default()
         elif event.key == "a":
             # Accept ours
             self._resolve_with_ours()
+            self._last_key = None
             event.prevent_default()
         elif event.key == "b":
             # Accept theirs
             self._resolve_with_theirs()
+            self._last_key = None
             event.prevent_default()
         elif event.key == "s":
             # Accept Bob's suggestion
             self._resolve_with_suggestion()
+            self._last_key = None
             event.prevent_default()
         elif event.key == "e":
             # Edit manually (placeholder for now)
             self.app.bell()
+            self._last_key = None
             event.prevent_default()
+        else:
+            # Reset gg sequence on any other key
+            self._last_key = None
     
     def _resolve_with_ours(self) -> None:
         """Resolve current hunk by accepting ours."""
