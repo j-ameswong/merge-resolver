@@ -19,6 +19,14 @@ class HunkResolved(Message):
         super().__init__()
 
 
+class HunkChanged(Message):
+    """Message emitted when the current hunk changes (navigation)."""
+    
+    def __init__(self, hunk: ConflictHunk) -> None:
+        self.hunk = hunk
+        super().__init__()
+
+
 class DiffViewPanel(Widget):
     """
     Center panel showing conflict hunks with resolution actions.
@@ -181,13 +189,19 @@ class DiffViewPanel(Widget):
         
         if event.key == "n":
             # Next hunk
+            old_index = self.current_hunk_index
             self.current_hunk_index = min(len(self.hunks) - 1, self.current_hunk_index + 1)
             self._refresh_view()
+            if old_index != self.current_hunk_index:
+                self.post_message(HunkChanged(self.hunks[self.current_hunk_index]))
             event.prevent_default()
         elif event.key == "p":
             # Previous hunk
+            old_index = self.current_hunk_index
             self.current_hunk_index = max(0, self.current_hunk_index - 1)
             self._refresh_view()
+            if old_index != self.current_hunk_index:
+                self.post_message(HunkChanged(self.hunks[self.current_hunk_index]))
             event.prevent_default()
         elif event.key == "a":
             # Accept ours

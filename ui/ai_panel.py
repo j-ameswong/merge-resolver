@@ -1,12 +1,15 @@
 """AI analysis panel showing Bob's insights and suggestions."""
 
+import threading
+
 from textual.app import ComposeResult
 from textual.containers import VerticalScroll
 from textual.widget import Widget
-from textual.widgets import Static
+from textual.widgets import Static, LoadingIndicator
 from rich.text import Text
 
 from git.parser import ConflictHunk
+from analysis.bob import analyse_hunk
 
 
 class AIPanelWidget(Widget):
@@ -53,21 +56,26 @@ class AIPanelWidget(Widget):
     def __init__(self) -> None:
         super().__init__()
         self.current_hunk: ConflictHunk | None = None
+        self.is_analysing: bool = False
+        self.analysis_thread: threading.Thread | None = None
     
     def compose(self) -> ComposeResult:
         """Compose the AI panel."""
         with VerticalScroll():
             yield self._create_content()
     
-    def _create_content(self) -> Static:
+    def _create_content(self) -> Widget:
         """Create the content for the current hunk."""
-        text = Text()
-        
         if self.current_hunk is None:
-            text.append("Select a conflict to see AI analysis", style="dim italic")
+            text = Text("Select a conflict to see AI analysis", style="dim italic")
             return Static(text)
         
+        # Show loading indicator while analysing
+        if self.is_analysing:
+            return LoadingIndicator()
+        
         # Check if AI analysis is available
+        text = Text()
         if self.current_hunk.ai_summary or self.current_hunk.ai_suggestion:
             # Show AI analysis
             if self.current_hunk.ai_summary:
@@ -78,8 +86,8 @@ class AIPanelWidget(Widget):
                 text.append("SUGGESTION:\n", style="bold green")
                 text.append(self.current_hunk.ai_suggestion + "\n")
         else:
-            # Show pending message
-            text.append("🤖 Bob is thinking...\n\n", style="bold cyan")
+            # Show pending message (analysis not started yet)
+            text.append("🤖 Bob is ready to analyse\n\n", style="bold cyan")
             text.append("Analysis pending\n", style="dim italic")
             text.append("\nFile: ", style="dim")
             text.append(f"{self.current_hunk.file}\n", style="")
@@ -100,13 +108,51 @@ class AIPanelWidget(Widget):
         Update the displayed hunk.
         
         This method will be called when the user navigates to a different hunk.
-        In a future task, this will trigger AI analysis if not already done.
         
         Args:
             hunk: The ConflictHunk to display, or None to clear
         """
         self.current_hunk = hunk
+        self.is_analysing = False
         self._refresh_content()
+    
+    def start_analysis(
+        self,
+        hunk: ConflictHunk,
+        ours_branch: str,
+        theirs_branch: str
+    ) -> None:
+        """
+        Start AI analysis for a hunk in a background thread.
+        
+        Shows a loading indicator while the analysis is running, then updates
+        the display with the results.
+        
+        Args:
+            hunk: The ConflictHunk to analyse
+            ours_branch: Name of the current branch (HEAD)
+            theirs_branch: Name of the incoming branch
+        """
+        # Don't start if already analysing or already has results
+        if self.is_analysing or hunk.ai_summary:
+            return
+        
+        self.is_analysing = True
+        self._refresh_content()
+        
+        def analyse_worker():
+            """Worker function that runs in background thread."""
+            try:
+                # Call the AI analysis
+                analyse_hunk(hunk, ours_branch, theirs_branch)
+            finally:
+                # Update UI on main thread using call_from_thread
+                self.is_analysing = False
+                self.app.call_from_thread(self._refresh_content)
+        
+        # Start the background thread
+        self.analysis_thread = threading.Thread(target=analyse_worker, daemon=True)
+        self.analysis_thread.start()
     
     def _refresh_content(self) -> None:
         """Refresh the display to show updated content."""

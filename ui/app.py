@@ -1,14 +1,224 @@
 """Main Textual application for merge-resolver."""
 
+from pathlib import Path
+
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal
-from textual.widgets import Header, Footer
+from textual.widgets import Header, Footer, Label, Button, Input
 from textual.binding import Binding
+from textual.screen import ModalScreen
 
 from git.parser import ConflictHunk
+from git.state import find_repo_root
 from ui.file_list import FileListPanel, FileSelected
-from ui.diff_view import DiffViewPanel, HunkResolved
+from ui.diff_view import DiffViewPanel, HunkResolved, HunkChanged
 from ui.ai_panel import AIPanelWidget
+from resolver.apply import apply_all, stage_file, commit, all_resolved
+
+
+class UnresolvedHunksModal(ModalScreen):
+    """Modal screen showing unresolved hunks with option to commit anyway."""
+    
+    CSS = """
+    UnresolvedHunksModal {
+        align: center middle;
+    }
+    
+    #dialog {
+        width: 60;
+        height: auto;
+        border: thick $background 80%;
+        background: $surface;
+        padding: 1 2;
+    }
+    
+    #message {
+        width: 100%;
+        height: auto;
+        content-align: center middle;
+        padding: 1 0;
+    }
+    
+    #buttons {
+        width: 100%;
+        height: auto;
+        align: center middle;
+        padding: 1 0;
+    }
+    
+    Button {
+        margin: 0 1;
+    }
+    """
+    
+    def __init__(self, unresolved_hunks: list[ConflictHunk]) -> None:
+        super().__init__()
+        self.unresolved_hunks = unresolved_hunks
+    
+    def compose(self) -> ComposeResult:
+        with Container(id="dialog"):
+            yield Label(
+                f"⚠️  {len(self.unresolved_hunks)} unresolved hunks remaining",
+                id="message"
+            )
+            
+            # List first few unresolved files
+            files = list(set(h.file for h in self.unresolved_hunks))[:5]
+            file_list = "\n".join(f"  • {f}" for f in files)
+            if len(files) < len(set(h.file for h in self.unresolved_hunks)):
+                file_list += "\n  ..."
+            
+            yield Label(file_list)
+            yield Label("\nCommit anyway? (partial resolution)", id="message")
+            
+            with Horizontal(id="buttons"):
+                yield Button("Yes", variant="error", id="yes")
+                yield Button("No", variant="primary", id="no")
+    
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "yes":
+            self.dismiss(True)
+        else:
+            self.dismiss(False)
+
+
+class CommitMessageModal(ModalScreen):
+    """Modal screen for entering commit message."""
+    
+    CSS = """
+    CommitMessageModal {
+        align: center middle;
+    }
+    
+    #dialog {
+        width: 60;
+        height: auto;
+        border: thick $background 80%;
+        background: $surface;
+        padding: 1 2;
+    }
+    
+    #message {
+        width: 100%;
+        height: auto;
+        content-align: center middle;
+        padding: 1 0;
+    }
+    
+    Input {
+        width: 100%;
+        margin: 1 0;
+    }
+    
+    #buttons {
+        width: 100%;
+        height: auto;
+        align: center middle;
+        padding: 1 0;
+    }
+    
+    Button {
+        margin: 0 1;
+    }
+    """
+    
+    def __init__(self, default_message: str) -> None:
+        super().__init__()
+        self.default_message = default_message
+    
+    def compose(self) -> ComposeResult:
+        with Container(id="dialog"):
+            yield Label("Enter commit message:", id="message")
+            yield Input(
+                value=self.default_message,
+                placeholder="Commit message",
+                id="commit_input"
+            )
+            
+            with Horizontal(id="buttons"):
+                yield Button("Commit", variant="success", id="commit")
+                yield Button("Cancel", variant="default", id="cancel")
+    
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "commit":
+            input_widget = self.query_one("#commit_input", Input)
+            self.dismiss(input_widget.value)
+        else:
+            self.dismiss(None)
+
+
+class ErrorModal(ModalScreen):
+    """Modal screen for displaying errors."""
+    
+    CSS = """
+    ErrorModal {
+        align: center middle;
+    }
+    
+    #dialog {
+        width: 60;
+        height: auto;
+        border: thick $background 80%;
+        background: $surface;
+        padding: 1 2;
+    }
+    
+    #message {
+        width: 100%;
+        height: auto;
+        padding: 1 0;
+    }
+    
+    Button {
+        width: 100%;
+        margin: 1 0;
+    }
+    """
+    
+    def __init__(self, error_message: str) -> None:
+        super().__init__()
+        self.error_message = error_message
+    
+    def compose(self) -> ComposeResult:
+        with Container(id="dialog"):
+            yield Label(f"❌ Error\n\n{self.error_message}", id="message")
+            yield Button("OK", variant="error", id="ok")
+    
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss()
+
+
+class SuccessModal(ModalScreen):
+    """Modal screen for displaying success message."""
+    
+    CSS = """
+    SuccessModal {
+        align: center middle;
+    }
+    
+    #dialog {
+        width: 40;
+        height: auto;
+        border: thick $background 80%;
+        background: $surface;
+        padding: 1 2;
+    }
+    
+    #message {
+        width: 100%;
+        height: auto;
+        content-align: center middle;
+        padding: 1 0;
+    }
+    """
+    
+    def __init__(self, message: str) -> None:
+        super().__init__()
+        self.message = message
+    
+    def compose(self) -> ComposeResult:
+        with Container(id="dialog"):
+            yield Label(f"✓ {self.message}", id="message")
 
 
 class MergeResolverApp(App):
@@ -111,9 +321,11 @@ class MergeResolverApp(App):
         if self.diff_view_panel:
             self.diff_view_panel.update_hunks(file_hunks)
         
-        # Update AI panel with first hunk
+        # Update AI panel with first hunk and start analysis
         if self.ai_panel and file_hunks:
-            self.ai_panel.update_hunk(file_hunks[0])
+            first_hunk = file_hunks[0]
+            self.ai_panel.update_hunk(first_hunk)
+            self.ai_panel.start_analysis(first_hunk, self.ours_branch, self.theirs_branch)
     
     def on_hunk_resolved(self, message: HunkResolved) -> None:
         """Handle hunk resolution from the diff view panel."""
@@ -131,10 +343,19 @@ class MergeResolverApp(App):
                 self.diff_view_panel.current_hunk_index += 1
                 self.diff_view_panel._refresh_view()
                 
-                # Update AI panel
+                # Update AI panel and start analysis
                 if self.ai_panel:
                     next_hunk = self.diff_view_panel.get_current_hunk()
-                    self.ai_panel.update_hunk(next_hunk)
+                    if next_hunk:
+                        self.ai_panel.update_hunk(next_hunk)
+                        self.ai_panel.start_analysis(next_hunk, self.ours_branch, self.theirs_branch)
+    
+    def on_hunk_changed(self, message: HunkChanged) -> None:
+        """Handle hunk navigation from the diff view panel."""
+        # Update AI panel and start analysis for the new hunk
+        if self.ai_panel:
+            self.ai_panel.update_hunk(message.hunk)
+            self.ai_panel.start_analysis(message.hunk, self.ours_branch, self.theirs_branch)
     
     def action_cycle_focus(self) -> None:
         """Cycle focus between panels."""
@@ -156,17 +377,52 @@ class MergeResolverApp(App):
             # Focus first panel
             focusable[0].focus()
     
-    def action_commit(self) -> None:
-        """Handle commit action (placeholder for now)."""
+    async def action_commit(self) -> None:
+        """Handle commit action with full resolution and commit flow."""
         # Check if all hunks are resolved
         unresolved = [h for h in self.hunks if h.resolved_text is None]
         
+        # If there are unresolved hunks, ask user if they want to commit anyway
         if unresolved:
-            self.bell()
-            # In a real implementation, show a modal with the count
-        else:
-            # All resolved - would trigger commit flow
-            self.bell()
+            result = await self.push_screen_wait(UnresolvedHunksModal(unresolved))
+            if not result:
+                # User chose not to commit
+                return
+        
+        # Get commit message from user
+        default_message = "Resolve merge conflicts (merge-resolver)"
+        commit_message = await self.push_screen_wait(CommitMessageModal(default_message))
+        
+        if commit_message is None:
+            # User cancelled
+            return
+        
+        # Apply all resolved hunks
+        try:
+            repo_root = find_repo_root()
+            
+            # Apply resolved hunks to files
+            resolved_files = apply_all(self.hunks, repo_root)
+            
+            if not resolved_files:
+                await self.push_screen_wait(ErrorModal("No resolved hunks to commit"))
+                return
+            
+            # Stage each modified file
+            for filepath in resolved_files.keys():
+                stage_file(filepath, repo_root)
+            
+            # Commit
+            commit(commit_message, repo_root)
+            
+            # Show success message
+            await self.push_screen(SuccessModal("Committed successfully"))
+            
+            # Wait 2 seconds then quit
+            await self.set_timer(2.0, self.exit)
+            
+        except Exception as e:
+            await self.push_screen_wait(ErrorModal(f"Commit failed:\n{str(e)}"))
     
     async def action_quit(self) -> None:
         """Quit the application."""
