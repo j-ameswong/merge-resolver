@@ -1,1 +1,39 @@
-test_repo/
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.eggs/
+*.egg-info/
+dist/
+build/
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Environment variables (NEVER commit API keys)
+.env
+.env.*
+*.env
+
+# Test repo (nested git repo — regenerate with scripts/create_test_repo.sh)
+test-repo/
+
+# Pytest cache
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editor / IDE
+.idea/
+*.swp
+*.swo
+# Note: NOT ignoring .bobignore — that should be committed
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
