@@ -85,6 +85,13 @@ class AIPanelWidget(Widget):
             if self.current_hunk.ai_suggestion:
                 text.append("SUGGESTION:\n", style="bold green")
                 text.append(self.current_hunk.ai_suggestion + "\n")
+            
+            # Show related files for structural conflicts
+            if self.current_hunk.kind == "structural" and self.current_hunk.related_files:
+                text.append("\n⚠ RELATED FILES:\n", style="bold yellow")
+                text.append("These files share symbols with this conflict:\n", style="dim")
+                for related_file in self.current_hunk.related_files:
+                    text.append(f"  • {related_file}\n", style="yellow")
         else:
             # Show pending message (analysis not started yet)
             text.append("🤖 Bob is ready to analyse\n\n", style="bold cyan")
@@ -100,6 +107,13 @@ class AIPanelWidget(Widget):
             severity_color = severity_colors.get(self.current_hunk.severity, "white")
             severity_label = severity_labels.get(self.current_hunk.severity, "Unknown")
             text.append(f"{severity_label}\n", style=severity_color)
+            
+            # Show related files for structural conflicts even before AI analysis
+            if self.current_hunk.kind == "structural" and self.current_hunk.related_files:
+                text.append("\n⚠ RELATED FILES:\n", style="bold yellow")
+                text.append("These files share symbols with this conflict:\n", style="dim")
+                for related_file in self.current_hunk.related_files:
+                    text.append(f"  • {related_file}\n", style="yellow")
         
         return Static(text)
     

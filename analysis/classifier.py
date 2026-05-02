@@ -56,6 +56,7 @@ def classify(hunk: ConflictHunk, all_hunks: list[ConflictHunk]) -> ConflictHunk:
     
     # Check for structural conflicts: any symbol from this hunk appears in a different file
     is_structural = False
+    related_files = []
     if all_names:
         for other_hunk in all_hunks:
             # Skip hunks from the same file
@@ -69,11 +70,13 @@ def classify(hunk: ConflictHunk, all_hunks: list[ConflictHunk]) -> ConflictHunk:
             
             if all_names & other_names:
                 is_structural = True
-                break
+                if other_hunk.file not in related_files:
+                    related_files.append(other_hunk.file)
     
     if is_structural:
         hunk.kind = "structural"
         hunk.severity = 3
+        hunk.related_files = related_files
         return hunk
     
     # Check for mechanical conflicts: short and non-overlapping

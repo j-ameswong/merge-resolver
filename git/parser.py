@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from git.state import get_conflicted_files
+from git.state import get_conflicted_files, GitError, GitNotFoundError
 
 
 @dataclass
@@ -29,6 +29,12 @@ class ConflictHunk:
     ai_summary: str = ""               # filled by bob.py
     ai_suggestion: str = ""            # filled by bob.py
     resolved_text: str | None = None   # set when user accepts/edits a resolution
+    related_files: list[str] | None = None  # files with shared symbols (for structural conflicts)
+    
+    def __post_init__(self):
+        """Initialize mutable default values."""
+        if self.related_files is None:
+            self.related_files = []
 
 
 def enable_diff3(repo_root: Path) -> None:
@@ -40,14 +46,25 @@ def enable_diff3(repo_root: Path) -> None:
     
     Args:
         repo_root: Path to the git repository root
+        
+    Raises:
+        GitNotFoundError: If git executable is not found
+        GitError: If git command fails
     """
-    subprocess.run(
-        ["git", "config", "merge.conflictstyle", "diff3"],
-        cwd=repo_root,
-        capture_output=True,
-        text=True,
-        check=True
-    )
+    try:
+        subprocess.run(
+            ["git", "config", "merge.conflictstyle", "diff3"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+    except FileNotFoundError:
+        raise GitNotFoundError(
+            "Git executable not found. Please ensure git is installed and in your PATH."
+        )
+    except subprocess.CalledProcessError as e:
+        raise GitError(f"Failed to configure diff3 style: {e.stderr.strip()}")
 
 
 def parse_file(repo_root: Path, filepath: str) -> list[ConflictHunk]:

@@ -4,7 +4,14 @@ import argparse
 import sys
 from pathlib import Path
 
-from git.state import find_repo_root, get_branch_names
+from git.state import (
+    find_repo_root,
+    get_branch_names,
+    GitError,
+    GitNotFoundError,
+    NotInRepoError,
+    NotInMergeError
+)
 from git.parser import enable_diff3, parse_all
 from analysis.classifier import classify_all
 from ui.app import MergeResolverApp
@@ -41,11 +48,12 @@ def main() -> int:
         try:
             ours_branch, theirs_branch = get_branch_names(repo_root)
             print(f"Merge: {ours_branch} ← {theirs_branch}")
-        except RuntimeError as e:
-            print(f"Warning: {e}")
-            print("Using default branch names")
-            ours_branch = "HEAD"
-            theirs_branch = "MERGE_HEAD"
+        except NotInMergeError as e:
+            print(f"\n❌ {e}")
+            print("\nTo use merge-resolver:")
+            print("  1. Start a merge: git merge <branch-name>")
+            print("  2. If conflicts occur, run: python main.py")
+            return 1
         
         # Parse all conflicts
         print("Parsing conflicts...")
@@ -78,15 +86,31 @@ def main() -> int:
         app.run()
         
         return 0
-        
-    except RuntimeError as e:
-        print(f"Error: {e}", file=sys.stderr)
+    
+    except GitNotFoundError as e:
+        print(f"\n❌ {e}", file=sys.stderr)
+        print("\nInstallation instructions:", file=sys.stderr)
+        print("  • macOS: brew install git", file=sys.stderr)
+        print("  • Ubuntu/Debian: sudo apt-get install git", file=sys.stderr)
+        print("  • Windows: https://git-scm.com/download/win", file=sys.stderr)
         return 1
+    
+    except NotInRepoError as e:
+        print(f"\n❌ {e}", file=sys.stderr)
+        print("\nTo initialize a git repository:", file=sys.stderr)
+        print("  git init", file=sys.stderr)
+        return 1
+    
+    except GitError as e:
+        print(f"\n❌ Git error: {e}", file=sys.stderr)
+        return 1
+    
     except KeyboardInterrupt:
-        print("\nAborted by user")
+        print("\n\nAborted by user")
         return 130
+    
     except Exception as e:
-        print(f"Unexpected error: {e}", file=sys.stderr)
+        print(f"\n❌ Unexpected error: {e}", file=sys.stderr)
         import traceback
         traceback.print_exc()
         return 1

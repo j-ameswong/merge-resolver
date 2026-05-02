@@ -221,6 +221,87 @@ class SuccessModal(ModalScreen):
             yield Label(f"✓ {self.message}", id="message")
 
 
+class HelpModal(ModalScreen):
+    """Modal screen showing keyboard shortcuts."""
+    
+    CSS = """
+    HelpModal {
+        align: center middle;
+    }
+    
+    #dialog {
+        width: 70;
+        height: auto;
+        border: thick $background 80%;
+        background: $surface;
+        padding: 1 2;
+    }
+    
+    #title {
+        width: 100%;
+        text-align: center;
+        text-style: bold;
+        color: $accent;
+        padding: 0 0 1 0;
+    }
+    
+    #shortcuts {
+        width: 100%;
+        height: auto;
+        padding: 1 0;
+    }
+    
+    Button {
+        width: 100%;
+        margin: 1 0;
+    }
+    """
+    
+    def compose(self) -> ComposeResult:
+        with Container(id="dialog"):
+            yield Label("⌨️  Keyboard Shortcuts", id="title")
+            
+            shortcuts_text = """
+╔═══════════════════════════════════════════════════════════════╗
+║ GLOBAL SHORTCUTS                                              ║
+╠═══════════════════════════════════════════════════════════════╣
+║  Tab          Cycle between panels                            ║
+║  h            Focus panel to the left                         ║
+║  l            Focus panel to the right                        ║
+║  ?            Show this help                                  ║
+║  c            Commit resolved changes                         ║
+║  q            Quit application                                ║
+╠═══════════════════════════════════════════════════════════════╣
+║ FILE LIST PANEL (Left)                                        ║
+╠═══════════════════════════════════════════════════════════════╣
+║  ↑/↓ or j/k   Navigate between files                          ║
+║  Enter        Select file and view conflicts                  ║
+╠═══════════════════════════════════════════════════════════════╣
+║ DIFF VIEW PANEL (Center)                                      ║
+╠═══════════════════════════════════════════════════════════════╣
+║  n or j       Next hunk                                       ║
+║  p or k       Previous hunk                                   ║
+║  gg           Jump to first hunk                              ║
+║  G            Jump to last hunk                               ║
+║  a            Accept OURS (current branch)                    ║
+║  b            Accept THEIRS (incoming branch)                 ║
+║  s            Accept Bob's AI suggestion                      ║
+║  e            Edit manually (not yet implemented)             ║
+╠═══════════════════════════════════════════════════════════════╣
+║ CONFLICT TYPES                                                ║
+╠═══════════════════════════════════════════════════════════════╣
+║  🟢 Mechanical   Simple, non-overlapping changes (low risk)   ║
+║  🟡 Logical      Same symbols modified (medium risk)          ║
+║  🔴 Structural   Cross-file symbol conflicts (high risk)      ║
+╚═══════════════════════════════════════════════════════════════╝
+"""
+            yield Label(shortcuts_text, id="shortcuts")
+            yield Button("Close", variant="primary", id="close")
+    
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss()
+
+
 class MergeResolverApp(App):
     """
     Main TUI application for merge conflict resolution.
@@ -249,6 +330,7 @@ class MergeResolverApp(App):
         Binding("tab", "cycle_focus", "Switch Panel", show=True),
         Binding("h", "focus_left", "← Panel", show=True, priority=True),
         Binding("l", "focus_right", "→ Panel", show=True, priority=True),
+        Binding("question_mark", "show_help", "Help", show=True),
         Binding("q", "quit", "Quit", show=True),
         Binding("c", "commit", "Commit", show=True),
     ]
@@ -465,6 +547,10 @@ class MergeResolverApp(App):
             
         except Exception as e:
             await self.push_screen_wait(ErrorModal(f"Commit failed:\n{str(e)}"))
+    
+    async def action_show_help(self) -> None:
+        """Show keyboard shortcuts help modal."""
+        await self.push_screen_wait(HelpModal())
     
     async def action_quit(self) -> None:
         """Quit the application."""
