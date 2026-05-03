@@ -132,22 +132,22 @@ Keys are case-sensitive (lowercase unless noted).
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │  🔀 merge-resolver  ·  feature/auth → main  ·  3 files, 5 hunks     │
-├──────────────────┬──────────────────────────┬────────────────────────┤
-│ FILES            │  src/auth/login.py [1/2] │ BOB SAYS               │
-│                  │                          │                        │
-│ 🔴 login.py      │  ~~~ HUNK 1 of 2 ~~~    │ Both sides modified    │
-│    [logical]     │                          │ the authentication     │
-│ 🟡 models.py     │  < OURS (feature/auth)   │ logic differently.     │
-│    [mechanical]  │  + use_jwt = True        │                        │
-│ 🔴 migrations/.. │  ---                     │ SUGGESTION:            │
-│    [structural]  │  > THEIRS (main)         │ Keep JWT auth from     │
-│                  │  + session_mw = True     │ feature branch, it's   │
-│                  │                          │ more secure.           │
-│                  │  [A] Accept Ours         │                        │
-│                  │  [B] Accept Theirs       │                        │
-│                  │  [E] Edit manually       │                        │
-│                  │  [S] Bob's suggestion    │                        │
-├──────────────────┴──────────────────────────┴────────────────────────┤
+├──────────────────┬──────────────────────────┬───────────────────────┤
+│ FILES            │  src/auth/login.py [1/2] │ BOB SAYS              │
+│                  │                          │                       │
+│ 🔴 login.py      │  ~~~ HUNK 1 of 2 ~~~     │ Both sides modified   │
+│    [logical]     │                          │ the authentication    │
+│ 🟡 models.py     │  < OURS (feature/auth)   │ logic differently.    │
+│    [mechanical]  │  + use_jwt = True        │                       │
+│ 🔴 migrations/.. │  ---                     │ SUGGESTION:           │
+│    [structural]  │  > THEIRS (main)         │ Keep JWT auth from    │
+│                  │  + session_mw = True     │ feature branch, it's  │
+│                  │                          │ more secure.          │
+│                  │  [A] Accept Ours         │                       │
+│                  │  [B] Accept Theirs       │                       │
+│                  │  [E] Edit manually       │                       │
+│                  │  [S] Bob's suggestion    │                       │
+├──────────────────┴──────────────────────────┴───────────────────────┤
 │  [↑↓] navigate · [Tab] switch panel · [C] commit · [Q] quit         │
 └─────────────────────────────────────────────────────────────────────┘
 ```
