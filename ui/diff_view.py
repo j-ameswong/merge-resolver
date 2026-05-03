@@ -52,7 +52,7 @@ class DiffViewPanel(Widget):
     DEFAULT_CSS = """
     DiffViewPanel {
         width: 50%;
-        border: solid $primary;
+        border: round $background 60%;
     }
     
     DiffViewPanel > VerticalScroll {
@@ -63,6 +63,12 @@ class DiffViewPanel(Widget):
         background: $panel;
         padding: 0 1;
         text-align: center;
+    }
+
+    .hunk-header.current {
+        background: yellow 30%;
+        color: yellow;
+        text-style: bold;
     }
     
     .hunk-section {
@@ -118,9 +124,10 @@ class DiffViewPanel(Widget):
         total = len(self.hunks)
         
         # Header
-        header_text = f"~~~ HUNK {self.current_hunk_index + 1} of {total} ~~~"
+        header_text = f"▶ HUNK {self.current_hunk_index + 1} of {total} ◀"
         header = Static(header_text)
         header.add_class("hunk-header")
+        header.add_class("current")
         widgets.append(header)
         
         # Ours section

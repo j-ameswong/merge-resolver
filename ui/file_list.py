@@ -64,7 +64,7 @@ class FileListPanel(Widget):
     DEFAULT_CSS = """
     FileListPanel {
         width: 28%;
-        border: solid $primary;
+        border: round $background 60%;
     }
     
     FileListPanel > Tree {
@@ -85,6 +85,7 @@ class FileListPanel(Widget):
         super().__init__()
         self.hunks = hunks
         self._last_key = None  # Track last key for gg motion
+        self._current_hunk: ConflictHunk | None = None
         self._group_hunks()
     
     def _group_hunks(self) -> None:
@@ -128,57 +129,67 @@ class FileListPanel(Widget):
         total_count = len(hunks)
         
         # Build file node label
-        label = self._format_file_label(filename, max_severity, most_common_kind, 
-                                       resolved_count, total_count)
-        
+        file_is_current = any(self._is_current_hunk(h) for h in hunks)
+        label = self._format_file_label(filename, max_severity, most_common_kind,
+                                       resolved_count, total_count, file_is_current)
+
         # Add file node
         file_node = parent.add(label, data=FileNode(filename), allow_expand=True)
-        
+
         # Add hunk children
         for hunk in hunks:
-            hunk_label = self._format_hunk_label(hunk)
+            hunk_label = self._format_hunk_label(hunk, self._is_current_hunk(hunk))
             file_node.add_leaf(hunk_label, data=HunkNode(hunk))
-        
+
         return file_node
     
     def _format_file_label(self, filename: str, severity: int, kind: str,
-                          resolved: int, total: int) -> Text:
+                          resolved: int, total: int, is_current: bool = False) -> Text:
         """Format a file node label."""
         # Severity indicator
         severity_colors = {1: "green", 2: "yellow", 3: "red"}
         severity_color = severity_colors[severity]
-        
+
         # Truncate filename if too long
         display_name = filename
         if len(display_name) > 25:
             display_name = "..." + display_name[-22:]
-        
+
         # Build the label
         text = Text()
+        if is_current:
+            text.append("▶ ", style="bold yellow")
         text.append("● ", style=severity_color)
-        text.append(display_name, style="bold")
+        text.append(display_name, style="bold yellow" if is_current else "bold")
         text.append(f" [{kind}] ", style="dim")
         text.append(f"{resolved}/{total}", style="cyan")
-        
+
         return text
-    
-    def _format_hunk_label(self, hunk: ConflictHunk) -> Text:
+
+    def _format_hunk_label(self, hunk: ConflictHunk, is_current: bool = False) -> Text:
         """Format a hunk node label with line range and resolution status."""
         # Calculate end line (start_line + number of lines in the conflict)
         # The conflict spans from start_line through all ours/base/theirs lines
         num_lines = len(hunk.ours) + len(hunk.base) + len(hunk.theirs)
         end_line = hunk.start_line + num_lines - 1
-        
+
         # Resolution status
         status = "✓" if hunk.resolved_text is not None else "○"
         status_color = "green" if hunk.resolved_text is not None else "dim"
-        
+
         # Build the label
         text = Text()
-        text.append(f"L{hunk.start_line}-{end_line}  ", style="dim")
+        if is_current:
+            text.append("▶ ", style="bold yellow")
+        range_style = "bold yellow" if is_current else "dim"
+        text.append(f"L{hunk.start_line}-{end_line}  ", style=range_style)
         text.append(status, style=status_color)
-        
+
         return text
+
+    def _is_current_hunk(self, hunk: ConflictHunk) -> bool:
+        cur = self._current_hunk
+        return cur is not None and cur.file == hunk.file and cur.hunk_index == hunk.hunk_index
     
     def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
         """Handle tree node selection."""
@@ -259,16 +270,23 @@ class FileListPanel(Widget):
             total_count = len(hunks)
             
             # Update file node label
-            file_node.label = self._format_file_label(filename, max_severity, 
-                                                     most_common_kind, resolved_count, 
-                                                     total_count)
-            
+            file_is_current = any(self._is_current_hunk(h) for h in hunks)
+            file_node.label = self._format_file_label(filename, max_severity,
+                                                     most_common_kind, resolved_count,
+                                                     total_count, file_is_current)
+
             # Update hunk child labels
             for hunk_node in file_node.children:
                 if isinstance(hunk_node.data, HunkNode):
-                    hunk_node.label = self._format_hunk_label(hunk_node.data.hunk)
-        
+                    is_cur = self._is_current_hunk(hunk_node.data.hunk)
+                    hunk_node.label = self._format_hunk_label(hunk_node.data.hunk, is_cur)
+
         tree.refresh()
+
+    def set_current_hunk(self, hunk: ConflictHunk | None) -> None:
+        """Mark the given hunk as the current one and refresh labels."""
+        self._current_hunk = hunk
+        self.refresh_labels()
     
     def expand_file(self, filename: str) -> None:
         """

@@ -4,6 +4,7 @@ from pathlib import Path
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal
+from textual.widget import Widget
 from textual.widgets import Header, Footer, Label, Button, Input, TextArea
 from textual.binding import Binding
 from textual.screen import ModalScreen
@@ -398,13 +399,25 @@ class MergeResolverApp(App):
     Screen {
         background: $surface;
     }
-    
+
     #main-container {
         height: 100%;
     }
-    
+
     #panels {
         height: 1fr;
+    }
+
+    FileListPanel.panel-active,
+    DiffViewPanel.panel-active,
+    AIPanelWidget.panel-active {
+        border: round yellow;
+    }
+
+    FileListPanel.panel-focused,
+    DiffViewPanel.panel-focused,
+    AIPanelWidget.panel-focused {
+        border: round cyan;
     }
     """
     
@@ -468,12 +481,41 @@ class MergeResolverApp(App):
         # Set the title and subtitle
         self.title = "merge-resolver"
         self.sub_title = f"{self.ours_branch} → {self.theirs_branch} · {len(set(h.file for h in self.hunks))} files, {len(self.hunks)} hunks"
-        
+
         # Auto-select first file if available
         if self.file_list_panel and self.hunks:
             first_file = self.file_list_panel.get_selected_filename()
             if first_file:
                 self._load_file(first_file)
+
+        self._update_panel_classes()
+
+    def _panels(self) -> list[Widget]:
+        return [p for p in (self.file_list_panel, self.diff_view_panel, self.ai_panel) if p is not None]
+
+    def _focused_panel(self):
+        focused = self.focused
+        if focused is None:
+            return None
+        for panel in self._panels():
+            if focused is panel or panel in focused.ancestors:
+                return panel
+        return None
+
+    def _update_panel_classes(self) -> None:
+        """Apply panel-focused (cyan) and panel-active (yellow) classes.
+
+        Active = the diff panel, since that's where the current hunk lives.
+        Focused wins over active when both apply to the same panel.
+        """
+        focused_panel = self._focused_panel()
+        for panel in self._panels():
+            panel.remove_class("panel-focused")
+            panel.remove_class("panel-active")
+        if self.diff_view_panel is not None and self.diff_view_panel is not focused_panel:
+            self.diff_view_panel.add_class("panel-active")
+        if focused_panel is not None:
+            focused_panel.add_class("panel-focused")
     
     def on_file_selected(self, message: FileSelected) -> None:
         """Handle file selection from the file list panel."""
@@ -495,6 +537,9 @@ class MergeResolverApp(App):
             first_hunk = file_hunks[0]
             self.ai_panel.update_hunk(first_hunk)
             self.ai_panel.start_analysis(first_hunk, self.ours_branch, self.theirs_branch)
+
+        if self.file_list_panel and file_hunks:
+            self.file_list_panel.set_current_hunk(file_hunks[0])
     
     def on_hunk_resolved(self, message: HunkResolved) -> None:
         """Handle hunk resolution from the diff view panel."""
@@ -513,11 +558,13 @@ class MergeResolverApp(App):
                 self.diff_view_panel._refresh_view()
                 
                 # Update AI panel and start analysis
-                if self.ai_panel:
-                    next_hunk = self.diff_view_panel.get_current_hunk()
-                    if next_hunk:
+                next_hunk = self.diff_view_panel.get_current_hunk()
+                if next_hunk:
+                    if self.ai_panel:
                         self.ai_panel.update_hunk(next_hunk)
                         self.ai_panel.start_analysis(next_hunk, self.ours_branch, self.theirs_branch)
+                    if self.file_list_panel:
+                        self.file_list_panel.set_current_hunk(next_hunk)
     
     def on_hunk_selected(self, message: HunkSelected) -> None:
         """Handle hunk selection from the file list panel."""
@@ -528,11 +575,14 @@ class MergeResolverApp(App):
         # Jump to the selected hunk in the diff view
         if self.diff_view_panel:
             self.diff_view_panel.jump_to_hunk(message.hunk)
-        
+
         # Update AI panel
         if self.ai_panel:
             self.ai_panel.update_hunk(message.hunk)
             self.ai_panel.start_analysis(message.hunk, self.ours_branch, self.theirs_branch)
+
+        if self.file_list_panel:
+            self.file_list_panel.set_current_hunk(message.hunk)
     
     @work
     async def on_hunk_edit_requested(self, message: HunkEditRequested) -> None:
@@ -553,9 +603,12 @@ class MergeResolverApp(App):
         if self.ai_panel:
             self.ai_panel.update_hunk(message.hunk)
             self.ai_panel.start_analysis(message.hunk, self.ours_branch, self.theirs_branch)
+        if self.file_list_panel:
+            self.file_list_panel.set_current_hunk(message.hunk)
     
     def on_descendant_focus(self, event) -> None:
         """Handle focus changes to auto-expand the current file in the tree."""
+        self._update_panel_classes()
         if not (self.diff_view_panel and self.file_list_panel and self.current_file):
             return
         focused = event.widget

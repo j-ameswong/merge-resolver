@@ -26,13 +26,20 @@ class AIPanelWidget(Widget):
     
     DEFAULT_CSS = """
     AIPanelWidget {
-        width: 25%;
-        border: solid $primary;
+        width: 22%;
+        border: round $background 60%;
+        overflow-x: hidden;
     }
-    
+
     AIPanelWidget > VerticalScroll {
         height: 100%;
+        width: 100%;
         padding: 1;
+        overflow-x: hidden;
+    }
+
+    AIPanelWidget Static {
+        width: 100%;
     }
     
     .ai-header {
