@@ -12,8 +12,13 @@ Built for the **IBM Bob Dev Day Hackathon 2026** — theme: *"Turn idea into imp
 
 - 🎯 **Smart conflict classification**: Automatically categorizes conflicts as mechanical, logical, or structural
 - 🤖 **AI-powered analysis**: IBM Bob (watsonx.ai) provides plain-English summaries and resolution suggestions
+- 🪄 **AI auto-merge**: Press `s` to have Bob synthesize a merged resolution that combines both sides
+- 🌳 **Expandable file tree**: Left panel groups hunks under their files; expand to jump straight to a hunk
 - 🖥️ **Beautiful TUI**: Three-panel interface with file list, diff view, and AI insights
-- ⚡ **Efficient workflow**: Navigate conflicts with keyboard shortcuts, resolve with one keystroke
+- 🎨 **Focus-aware highlighting**: Cyan border marks the focused panel, yellow border marks the active diff panel
+- ⌨️ **Vim motions**: `h`/`l` to switch panels, `j`/`k` to navigate, `gg`/`G` to jump to first/last hunk
+- ✏️ **Inline editor modal**: `e` opens a Textual editor for manual resolutions (Ctrl+S to save)
+- 💾 **End-to-end commit flow**: Apply resolutions, stage, and commit from inside the TUI — with a prompt if hunks are unresolved
 - 🔍 **Cross-file awareness**: Detects structural conflicts that span multiple files
 - 📊 **Severity indicators**: Visual badges show conflict complexity at a glance
 
@@ -40,10 +45,22 @@ cd merge-resolver
 pip install -r requirements.txt
 ```
 
-3. Configure IBM Bob credentials (if using AI features):
+3. Configure watsonx.ai credentials (if using AI features). Either export them or place them in a `.env` file at the repo root:
 ```bash
-export BOB_API_KEY="your-api-key"
-export BOB_API_URL="https://bob.api.example.com"
+export WATSONX_API_KEY="your-ibm-cloud-api-key"
+export WATSONX_PROJECT_ID="your-watsonx-project-id"
+export AI_BACKEND="watsonx"   # or "mock" (default) for offline use
+```
+
+When `AI_BACKEND` is unset or set to `mock`, the AI panel and `s` (auto-merge) fall back to deterministic stub output — useful for development and tests without burning API quota.
+
+### Optional: seed a test repo
+
+A helper script provisions a throwaway git repo with multiple seeded conflict hunks so you can exercise the TUI end-to-end:
+
+```bash
+./scripts/setup_test_repo.sh           # creates ../test-repo
+./scripts/setup_test_repo.sh /tmp/foo  # or pass a custom path
 ```
 
 ---
@@ -74,28 +91,39 @@ python main.py [--repo PATH]
 
 ### TUI Navigation
 
-**File List Panel (Left)**
-- `↑/↓` or `j/k`: Navigate between files
-- `Enter`: Select file and view first conflict
+Keys are case-sensitive (lowercase unless noted).
+
+**File List Panel (Left) — tree view**
+- `↑/↓` or `j/k`: Move the cursor between files and hunks
+- `Enter`: Toggle expand on a file node, or jump to the selected hunk
+- The current file auto-expands when the center panel is focused
 
 **Diff View Panel (Center)**
-- `↑/↓` or `j/k`: Navigate between hunks in current file
-- `A`: Accept "ours" (current branch) version
-- `B`: Accept "theirs" (incoming branch) version
-- `E`: Edit manually (opens in editor)
-- `S`: Apply Bob's AI suggestion
-- `N`: Skip to next hunk
-- `P`: Go to previous hunk
+- `n` or `j`: Next hunk
+- `p` or `k`: Previous hunk
+- `gg`: Jump to first hunk
+- `G`: Jump to last hunk
+- `a`: Accept OURS (current branch)
+- `b`: Accept THEIRS (incoming branch)
+- `s`: Apply Bob's AI auto-merge suggestion (calls watsonx if configured)
+- `e`: Edit manually — opens the in-app editor modal (`Ctrl+S` save, `Esc` cancel)
 
 **AI Panel (Right)**
-- Automatically shows analysis for selected hunk
-- Updates as you navigate
+- Automatically shows summary + suggestion for the focused hunk
+- Shows a spinner while watsonx is generating; falls back gracefully on error
 
 **Global Shortcuts**
 - `Tab`: Cycle between panels
-- `?`: Show keyboard shortcuts help
-- `C`: Commit resolved changes
-- `Q`: Quit (prompts if unresolved conflicts remain)
+- `h` / `l`: Focus the panel to the left / right (vim motion)
+- `?`: Show keyboard shortcuts help modal
+- `c`: Commit resolved changes (prompts for a commit message; warns if hunks remain unresolved)
+- `q`: Quit
+
+### Visual cues
+
+- **Cyan border** — the panel that currently has keyboard focus
+- **Yellow border** — the diff panel when it's not focused (it's still the "active" panel where the current hunk lives)
+- Severity dots on each file (🟢/🟡/🔴) reflect the highest-severity hunk in that file
 
 ---
 
@@ -175,14 +203,16 @@ merge-resolver/
 │   └── parser.py     # Conflict marker parsing → ConflictHunk objects
 ├── analysis/         # Conflict analysis
 │   ├── classifier.py # Heuristic classification (mechanical/logical/structural)
-│   └── bob.py        # AI API integration for summaries and suggestions
+│   └── bob.py        # watsonx.ai integration: summaries, suggestions, auto-merge
 ├── ui/               # Textual TUI components
-│   ├── app.py        # Main application and layout
-│   ├── file_list.py  # Left panel: file list with severity badges
-│   ├── diff_view.py  # Center panel: conflict diff with actions
-│   └── ai_panel.py   # Right panel: AI analysis display
+│   ├── app.py        # Main app, panel focus tracking, modals, commit flow
+│   ├── file_list.py  # Left panel: tree of files with expandable hunk children
+│   ├── diff_view.py  # Center panel: conflict diff with vim-motion navigation
+│   └── ai_panel.py   # Right panel: AI analysis display with spinner
 ├── resolver/         # Conflict resolution
-│   └── apply.py      # Write resolved files, stage, commit
+│   └── apply.py      # Write resolved files (bottom-up), stage, commit
+├── scripts/
+│   └── setup_test_repo.sh  # Seed a throwaway repo with conflicts for testing
 └── main.py           # Entry point
 ```
 
