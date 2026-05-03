@@ -30,6 +30,8 @@ class FileListPanel(Widget):
     - Resolution progress (e.g., "2/3")
     """
     
+    can_focus = True
+
     DEFAULT_CSS = """
     FileListPanel {
         width: 20%;

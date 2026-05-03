@@ -38,7 +38,7 @@ def main() -> int:
     
     try:
         # Find repository root
-        repo_root = find_repo_root()
+        repo_root = find_repo_root(args.repo)
         print(f"Repository: {repo_root}")
         
         # Enable diff3 conflict style

@@ -24,17 +24,17 @@ class NotInMergeError(GitError):
     pass
 
 
-def find_repo_root() -> Path:
+def find_repo_root(start: Path | None = None) -> Path:
     """
-    Walk up from current working directory until a .git directory is found.
-    
+    Walk up from the given directory (or cwd) until a .git directory is found.
+
     Returns:
         Path: The root directory of the git repository
-        
+
     Raises:
         NotInRepoError: If no .git directory is found in any parent directory
     """
-    current = Path.cwd()
+    current = (start or Path.cwd()).resolve()
     
     # Walk up the directory tree
     for parent in [current, *current.parents]:

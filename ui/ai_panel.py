@@ -22,6 +22,8 @@ class AIPanelWidget(Widget):
     - Placeholder when analysis is pending
     """
     
+    can_focus = True
+    
     DEFAULT_CSS = """
     AIPanelWidget {
         width: 25%;

@@ -39,6 +39,8 @@ class DiffViewPanel(Widget):
     - Action buttons
     """
     
+    can_focus = True
+    
     DEFAULT_CSS = """
     DiffViewPanel {
         width: 55%;

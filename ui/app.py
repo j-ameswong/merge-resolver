@@ -470,11 +470,12 @@ class MergeResolverApp(App):
         if not focusable:
             return
         
-        # Find current focused widget
+        # Find current focused widget, walking ancestors if needed
         current = self.focused
+        current_panel = next((p for p in focusable if current is p or (current and p in current.ancestors)), None)
         
-        if current in focusable:
-            current_idx = focusable.index(current)
+        if current_panel is not None:
+            current_idx = focusable.index(current_panel)
             prev_idx = (current_idx - 1) % len(focusable)
             focusable[prev_idx].focus()
         else:
@@ -490,11 +491,12 @@ class MergeResolverApp(App):
         if not focusable:
             return
         
-        # Find current focused widget
+        # Find current focused widget, walking ancestors if needed
         current = self.focused
+        current_panel = next((p for p in focusable if current is p or (current and p in current.ancestors)), None)
         
-        if current in focusable:
-            current_idx = focusable.index(current)
+        if current_panel is not None:
+            current_idx = focusable.index(current_panel)
             next_idx = (current_idx + 1) % len(focusable)
             focusable[next_idx].focus()
         else:
