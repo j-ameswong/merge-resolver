@@ -4,14 +4,15 @@ from pathlib import Path
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal
-from textual.widgets import Header, Footer, Label, Button, Input
+from textual.widgets import Header, Footer, Label, Button, Input, TextArea
 from textual.binding import Binding
 from textual.screen import ModalScreen
+from textual import work
 
 from git.parser import ConflictHunk
 from git.state import find_repo_root
-from ui.file_list import FileListPanel, FileSelected
-from ui.diff_view import DiffViewPanel, HunkResolved, HunkChanged
+from ui.file_list import FileListPanel, FileSelected, HunkSelected
+from ui.diff_view import DiffViewPanel, HunkResolved, HunkChanged, HunkEditRequested
 from ui.ai_panel import AIPanelWidget
 from resolver.apply import apply_all, stage_file, commit, all_resolved
 
@@ -138,13 +139,93 @@ class CommitMessageModal(ModalScreen):
             with Horizontal(id="buttons"):
                 yield Button("Commit", variant="success", id="commit")
                 yield Button("Cancel", variant="default", id="cancel")
-    
+
+    def on_mount(self) -> None:
+        self.query_one("#commit_input", Input).focus()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id == "commit_input":
+            self.dismiss(event.value)
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "commit":
             input_widget = self.query_one("#commit_input", Input)
             self.dismiss(input_widget.value)
         else:
             self.dismiss(None)
+
+
+class EditModal(ModalScreen):
+    """Modal screen for manually editing a hunk's resolved text."""
+
+    CSS = """
+    EditModal {
+        align: center middle;
+    }
+
+    #dialog {
+        width: 80%;
+        height: 80%;
+        border: thick $background 80%;
+        background: $surface;
+        padding: 1 2;
+    }
+
+    #title {
+        width: 100%;
+        text-align: center;
+        text-style: bold;
+        padding: 0 0 1 0;
+    }
+
+    TextArea {
+        height: 1fr;
+        margin: 1 0;
+    }
+
+    #buttons {
+        width: 100%;
+        height: auto;
+        align: center middle;
+        padding: 1 0;
+    }
+
+    Button {
+        margin: 0 1;
+    }
+    """
+
+    BINDINGS = [
+        Binding("ctrl+s", "save", "Save", show=True),
+        Binding("escape", "cancel", "Cancel", show=True),
+    ]
+
+    def __init__(self, initial_text: str) -> None:
+        super().__init__()
+        self.initial_text = initial_text
+
+    def compose(self) -> ComposeResult:
+        with Container(id="dialog"):
+            yield Label("Edit resolution (Ctrl+S to save, Esc to cancel)", id="title")
+            yield TextArea(self.initial_text, id="editor")
+            with Horizontal(id="buttons"):
+                yield Button("Save", variant="success", id="save")
+                yield Button("Cancel", variant="default", id="cancel")
+
+    def on_mount(self) -> None:
+        self.query_one("#editor", TextArea).focus()
+
+    def action_save(self) -> None:
+        self.dismiss(self.query_one("#editor", TextArea).text)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "save":
+            self.action_save()
+        else:
+            self.action_cancel()
 
 
 class ErrorModal(ModalScreen):
@@ -274,8 +355,9 @@ class HelpModal(ModalScreen):
 ╠═══════════════════════════════════════════════════════════════╣
 ║ FILE LIST PANEL (Left)                                        ║
 ╠═══════════════════════════════════════════════════════════════╣
-║  ↑/↓ or j/k   Navigate between files                          ║
-║  Enter        Select file and view conflicts                  ║
+║  ↑/↓ or j/k   Navigate files/hunks                            ║
+║  Enter        Toggle expand (file) / jump to hunk (hunk)      ║
+║  Note: Current file auto-expands when center panel focused    ║
 ╠═══════════════════════════════════════════════════════════════╣
 ║ DIFF VIEW PANEL (Center)                                      ║
 ╠═══════════════════════════════════════════════════════════════╣
@@ -339,15 +421,18 @@ class MergeResolverApp(App):
         self,
         hunks: list[ConflictHunk],
         ours_branch: str = "HEAD",
-        theirs_branch: str = "MERGE_HEAD"
+        theirs_branch: str = "MERGE_HEAD",
+        repo_root: Path | None = None,
     ) -> None:
         super().__init__()
         self.hunks = hunks
         self.ours_branch = ours_branch
         self.theirs_branch = theirs_branch
+        self.repo_root = repo_root
         
         # Track current state
         self.current_file: str | None = None
+        self._expanded_file: str | None = None
         self.file_list_panel: FileListPanel | None = None
         self.diff_view_panel: DiffViewPanel | None = None
         self.ai_panel: AIPanelWidget | None = None
@@ -418,7 +503,7 @@ class MergeResolverApp(App):
         
         # Refresh file list to show updated progress
         if self.file_list_panel:
-            self.file_list_panel._refresh_rows()
+            self.file_list_panel.refresh_labels()
         
         # Move to next hunk if available
         if self.diff_view_panel:
@@ -434,12 +519,54 @@ class MergeResolverApp(App):
                         self.ai_panel.update_hunk(next_hunk)
                         self.ai_panel.start_analysis(next_hunk, self.ours_branch, self.theirs_branch)
     
+    def on_hunk_selected(self, message: HunkSelected) -> None:
+        """Handle hunk selection from the file list panel."""
+        # If the hunk is from a different file, load that file first
+        if message.hunk.file != self.current_file:
+            self._load_file(message.hunk.file)
+        
+        # Jump to the selected hunk in the diff view
+        if self.diff_view_panel:
+            self.diff_view_panel.jump_to_hunk(message.hunk)
+        
+        # Update AI panel
+        if self.ai_panel:
+            self.ai_panel.update_hunk(message.hunk)
+            self.ai_panel.start_analysis(message.hunk, self.ours_branch, self.theirs_branch)
+    
+    @work
+    async def on_hunk_edit_requested(self, message: HunkEditRequested) -> None:
+        """Open the edit modal so the user can manually craft a resolution."""
+        hunk = message.hunk
+        if hunk.resolved_text is not None:
+            initial = hunk.resolved_text
+        else:
+            initial = "".join(hunk.ours)
+        result = await self.push_screen_wait(EditModal(initial))
+        if result is None:
+            return
+        self.post_message(HunkResolved(hunk, result))
+
     def on_hunk_changed(self, message: HunkChanged) -> None:
         """Handle hunk navigation from the diff view panel."""
         # Update AI panel and start analysis for the new hunk
         if self.ai_panel:
             self.ai_panel.update_hunk(message.hunk)
             self.ai_panel.start_analysis(message.hunk, self.ours_branch, self.theirs_branch)
+    
+    def on_descendant_focus(self, event) -> None:
+        """Handle focus changes to auto-expand the current file in the tree."""
+        if not (self.diff_view_panel and self.file_list_panel and self.current_file):
+            return
+        focused = event.widget
+        # Match focus on the diff panel itself OR any descendant of it.
+        in_diff = focused is self.diff_view_panel or focused in self.diff_view_panel.walk_children()
+        if not in_diff:
+            return
+        if self._expanded_file == self.current_file:
+            return
+        self._expanded_file = self.current_file
+        self.file_list_panel.expand_file(self.current_file)
     
     def action_cycle_focus(self) -> None:
         """Cycle focus between panels."""
@@ -503,6 +630,7 @@ class MergeResolverApp(App):
             # Focus first panel
             focusable[0].focus()
     
+    @work
     async def action_commit(self) -> None:
         """Handle commit action with full resolution and commit flow."""
         # Check if all hunks are resolved
@@ -525,7 +653,7 @@ class MergeResolverApp(App):
         
         # Apply all resolved hunks
         try:
-            repo_root = find_repo_root()
+            repo_root = self.repo_root if self.repo_root is not None else find_repo_root()
             
             # Apply resolved hunks to files
             resolved_files = apply_all(self.hunks, repo_root)
@@ -543,13 +671,14 @@ class MergeResolverApp(App):
             
             # Show success message
             await self.push_screen(SuccessModal("Committed successfully"))
-            
+
             # Wait 2 seconds then quit
-            await self.set_timer(2.0, self.exit)
+            self.set_timer(2.0, self.exit)
             
         except Exception as e:
             await self.push_screen_wait(ErrorModal(f"Commit failed:\n{str(e)}"))
     
+    @work
     async def action_show_help(self) -> None:
         """Show keyboard shortcuts help modal."""
         await self.push_screen_wait(HelpModal())

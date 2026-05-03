@@ -81,7 +81,8 @@ def main() -> int:
         app = MergeResolverApp(
             hunks=hunks,
             ours_branch=ours_branch,
-            theirs_branch=theirs_branch
+            theirs_branch=theirs_branch,
+            repo_root=repo_root,
         )
         app.run()
         

@@ -21,7 +21,15 @@ class HunkResolved(Message):
 
 class HunkChanged(Message):
     """Message emitted when the current hunk changes (navigation)."""
-    
+
+    def __init__(self, hunk: ConflictHunk) -> None:
+        self.hunk = hunk
+        super().__init__()
+
+
+class HunkEditRequested(Message):
+    """Message emitted when the user requests manual editing of a hunk."""
+
     def __init__(self, hunk: ConflictHunk) -> None:
         self.hunk = hunk
         super().__init__()
@@ -43,7 +51,7 @@ class DiffViewPanel(Widget):
     
     DEFAULT_CSS = """
     DiffViewPanel {
-        width: 55%;
+        width: 50%;
         border: solid $primary;
     }
     
@@ -89,7 +97,9 @@ class DiffViewPanel(Widget):
     
     def compose(self) -> ComposeResult:
         """Compose the diff view."""
-        with VerticalScroll():
+        scroll = VerticalScroll()
+        scroll.can_focus = False
+        with scroll:
             if not self.hunks:
                 yield Static("[dim]Select a file to view conflicts[/dim]")
             else:
@@ -199,7 +209,7 @@ class DiffViewPanel(Widget):
             if old_index != self.current_hunk_index:
                 self.post_message(HunkChanged(self.hunks[self.current_hunk_index]))
             self._last_key = None
-            event.prevent_default()
+            event.stop()
         elif event.key in ("p", "k"):
             # Previous hunk
             old_index = self.current_hunk_index
@@ -208,7 +218,7 @@ class DiffViewPanel(Widget):
             if old_index != self.current_hunk_index:
                 self.post_message(HunkChanged(self.hunks[self.current_hunk_index]))
             self._last_key = None
-            event.prevent_default()
+            event.stop()
         # Vim motions: gg for first, G for last
         elif event.key == "g":
             if self._last_key == "g":
@@ -219,11 +229,11 @@ class DiffViewPanel(Widget):
                 if old_index != self.current_hunk_index:
                     self.post_message(HunkChanged(self.hunks[self.current_hunk_index]))
                 self._last_key = None
-                event.prevent_default()
+                event.stop()
             else:
                 # First g, wait for second
                 self._last_key = "g"
-                event.prevent_default()
+                event.stop()
         elif event.key == "G":
             # G - go to last hunk
             old_index = self.current_hunk_index
@@ -232,27 +242,29 @@ class DiffViewPanel(Widget):
             if old_index != self.current_hunk_index:
                 self.post_message(HunkChanged(self.hunks[self.current_hunk_index]))
             self._last_key = None
-            event.prevent_default()
+            event.stop()
         elif event.key == "a":
             # Accept ours
             self._resolve_with_ours()
             self._last_key = None
-            event.prevent_default()
+            event.stop()
         elif event.key == "b":
             # Accept theirs
             self._resolve_with_theirs()
             self._last_key = None
-            event.prevent_default()
+            event.stop()
         elif event.key == "s":
             # Accept Bob's suggestion
             self._resolve_with_suggestion()
             self._last_key = None
-            event.prevent_default()
+            event.stop()
         elif event.key == "e":
-            # Edit manually (placeholder for now)
-            self.app.bell()
+            # Edit manually
+            hunk = self.get_current_hunk()
+            if hunk is not None:
+                self.post_message(HunkEditRequested(hunk))
             self._last_key = None
-            event.prevent_default()
+            event.stop()
         else:
             # Reset gg sequence on any other key
             self._last_key = None
@@ -296,5 +308,25 @@ class DiffViewPanel(Widget):
         if self.hunks and 0 <= self.current_hunk_index < len(self.hunks):
             return self.hunks[self.current_hunk_index]
         return None
+    
+    def jump_to_hunk(self, hunk: ConflictHunk) -> None:
+        """
+        Jump to a specific hunk by identity.
+        
+        Args:
+            hunk: The ConflictHunk to jump to
+        """
+        try:
+            # Find the hunk in our list by identity (file + hunk_index)
+            for i, h in enumerate(self.hunks):
+                if h.file == hunk.file and h.hunk_index == hunk.hunk_index:
+                    old_index = self.current_hunk_index
+                    self.current_hunk_index = i
+                    self._refresh_view()
+                    if old_index != self.current_hunk_index:
+                        self.post_message(HunkChanged(self.hunks[self.current_hunk_index]))
+                    return
+        except (AttributeError, IndexError):
+            pass  # Hunk not found, do nothing
 
 # Made with Bob
