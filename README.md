@@ -2,6 +2,12 @@
 
 **An intelligent terminal UI for resolving git merge conflicts with AI assistance**
 
+<img width="3144" height="1794" alt="image" src="https://github.com/user-attachments/assets/736c232f-c5a9-4e71-af02-cb3ff382c59e" />
+
+[Video Demo](https://www.youtube.com/watch?v=DRkstbvGofU)
+
+---
+
 `merge-resolver` replaces manual conflict resolution with a guided, intelligent workflow. It detects conflicted files, classifies each conflict by type (mechanical/logical/structural), calls IBM Bob AI for plain-English analysis and resolution suggestions, and lets you resolve hunks interactively before staging and committing.
 
 Built for the **IBM Bob Dev Day Hackathon 2026** — theme: *"Turn idea into impact faster"*.
