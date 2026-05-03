@@ -66,6 +66,7 @@ class AIPanelWidget(Widget):
         super().__init__()
         self.current_hunk: ConflictHunk | None = None
         self.is_analysing: bool = False
+        self.is_generating: bool = False
         self.analysis_thread: threading.Thread | None = None
     
     def compose(self) -> ComposeResult:
@@ -78,7 +79,15 @@ class AIPanelWidget(Widget):
         if self.current_hunk is None:
             text = Text("Select a conflict to see AI analysis", style="dim italic")
             return Static(text)
-        
+
+        # Generating merged code takes priority over routine analysis.
+        if self.is_generating:
+            text = Text()
+            text.append("🤖 Bob is generating merged code…\n\n", style="bold cyan")
+            text.append("Calling watsonx.ai for a code-only resolution.\n", style="dim italic")
+            text.append("This usually takes a few seconds.", style="dim italic")
+            return Static(text)
+
         # Show loading indicator while analysing
         if self.is_analysing:
             return LoadingIndicator()
@@ -129,14 +138,20 @@ class AIPanelWidget(Widget):
     def update_hunk(self, hunk: ConflictHunk | None) -> None:
         """
         Update the displayed hunk.
-        
+
         This method will be called when the user navigates to a different hunk.
-        
+
         Args:
             hunk: The ConflictHunk to display, or None to clear
         """
         self.current_hunk = hunk
         self.is_analysing = False
+        self.is_generating = False
+        self._refresh_content()
+
+    def set_generating(self, generating: bool) -> None:
+        """Toggle the 'Bob is generating merged code' indicator."""
+        self.is_generating = generating
         self._refresh_content()
     
     def start_analysis(

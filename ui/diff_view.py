@@ -12,10 +12,11 @@ from git.parser import ConflictHunk
 
 class HunkResolved(Message):
     """Message emitted when a hunk is resolved."""
-    
-    def __init__(self, hunk: ConflictHunk, resolved_text: str) -> None:
+
+    def __init__(self, hunk: ConflictHunk, resolved_text: str, source: str = "edit") -> None:
         self.hunk = hunk
         self.resolved_text = resolved_text
+        self.source = source
         super().__init__()
 
 
@@ -29,6 +30,14 @@ class HunkChanged(Message):
 
 class HunkEditRequested(Message):
     """Message emitted when the user requests manual editing of a hunk."""
+
+    def __init__(self, hunk: ConflictHunk) -> None:
+        self.hunk = hunk
+        super().__init__()
+
+
+class HunkSuggestionRequested(Message):
+    """Message emitted when the user wants Bob to generate merged code for a hunk."""
 
     def __init__(self, hunk: ConflictHunk) -> None:
         self.hunk = hunk
@@ -84,9 +93,14 @@ class DiffViewPanel(Widget):
         background: $error 20%;
         color: $error;
     }
-    
+
     .base-line {
         color: $text 50%;
+    }
+
+    .resolved-line {
+        background: $accent 20%;
+        color: $accent;
     }
     
     .actions {
@@ -145,7 +159,15 @@ class DiffViewPanel(Widget):
         theirs_section = Static(self._format_section("THEIRS", hunk.theirs, "theirs-line"))
         theirs_section.add_class("hunk-section")
         widgets.append(theirs_section)
-        
+
+        # Resolved preview (only if hunk has been resolved)
+        if hunk.resolved_text is not None:
+            resolved_lines = hunk.resolved_text.splitlines(keepends=True)
+            label = f"RESOLVED ({hunk.resolution_source})" if getattr(hunk, "resolution_source", None) else "RESOLVED"
+            resolved_section = Static(self._format_section(label, resolved_lines, "resolved-line"))
+            resolved_section.add_class("hunk-section")
+            widgets.append(resolved_section)
+
         # Actions
         actions_text = Text()
         actions_text.append("[A] Accept Ours  ", style="bold green")
@@ -170,6 +192,9 @@ class DiffViewPanel(Widget):
         elif style_class == "theirs-line":
             prefix = "> "
             style = "red"
+        elif style_class == "resolved-line":
+            prefix = "= "
+            style = "cyan"
         else:  # base-line
             prefix = "| "
             style = "dim"
@@ -283,8 +308,8 @@ class DiffViewPanel(Widget):
         
         hunk = self.hunks[self.current_hunk_index]
         resolved_text = "".join(hunk.ours)
-        self.post_message(HunkResolved(hunk, resolved_text))
-    
+        self.post_message(HunkResolved(hunk, resolved_text, "ours"))
+
     def _resolve_with_theirs(self) -> None:
         """Resolve current hunk by accepting theirs."""
         if not self.hunks:
@@ -292,23 +317,14 @@ class DiffViewPanel(Widget):
         
         hunk = self.hunks[self.current_hunk_index]
         resolved_text = "".join(hunk.theirs)
-        self.post_message(HunkResolved(hunk, resolved_text))
+        self.post_message(HunkResolved(hunk, resolved_text, "theirs"))
     
     def _resolve_with_suggestion(self) -> None:
-        """Resolve current hunk using Bob's suggestion."""
+        """Ask the app to fetch Bob's merged-code suggestion for the current hunk."""
         if not self.hunks:
             return
-        
         hunk = self.hunks[self.current_hunk_index]
-        
-        # For now, use ai_suggestion if available, otherwise fall back to ours
-        if hunk.ai_suggestion:
-            resolved_text = hunk.ai_suggestion
-        else:
-            # No suggestion yet, just use ours as fallback
-            resolved_text = "".join(hunk.ours)
-        
-        self.post_message(HunkResolved(hunk, resolved_text))
+        self.post_message(HunkSuggestionRequested(hunk))
     
     def get_current_hunk(self) -> ConflictHunk | None:
         """Get the currently displayed hunk."""

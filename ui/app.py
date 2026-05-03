@@ -13,9 +13,16 @@ from textual import work
 from git.parser import ConflictHunk
 from git.state import find_repo_root
 from ui.file_list import FileListPanel, FileSelected, HunkSelected
-from ui.diff_view import DiffViewPanel, HunkResolved, HunkChanged, HunkEditRequested
+from ui.diff_view import (
+    DiffViewPanel,
+    HunkResolved,
+    HunkChanged,
+    HunkEditRequested,
+    HunkSuggestionRequested,
+)
 from ui.ai_panel import AIPanelWidget
 from resolver.apply import apply_all, stage_file, commit, all_resolved
+from analysis.bob import suggest_resolution
 
 
 class UnresolvedHunksModal(ModalScreen):
@@ -369,7 +376,8 @@ class HelpModal(ModalScreen):
 ║  a            Accept OURS (current branch)                    ║
 ║  b            Accept THEIRS (incoming branch)                 ║
 ║  s            Accept Bob's AI suggestion                      ║
-║  e            Edit manually (not yet implemented)             ║
+║  e            Edit manually                                   ║
+║  Note: Resolution preview shows below; navigate with n/p      ║
 ╠═══════════════════════════════════════════════════════════════╣
 ║ CONFLICT TYPES                                                ║
 ╠═══════════════════════════════════════════════════════════════╣
@@ -543,28 +551,17 @@ class MergeResolverApp(App):
     
     def on_hunk_resolved(self, message: HunkResolved) -> None:
         """Handle hunk resolution from the diff view panel."""
-        # Update the hunk's resolved_text
+        # Update the hunk's resolved_text and source
         message.hunk.resolved_text = message.resolved_text
-        
+        message.hunk.resolution_source = message.source
+
         # Refresh file list to show updated progress
         if self.file_list_panel:
             self.file_list_panel.refresh_labels()
-        
-        # Move to next hunk if available
+
+        # Stay on the current hunk and re-render so the resolution preview shows
         if self.diff_view_panel:
-            current_idx = self.diff_view_panel.current_hunk_index
-            if current_idx < len(self.diff_view_panel.hunks) - 1:
-                self.diff_view_panel.current_hunk_index += 1
-                self.diff_view_panel._refresh_view()
-                
-                # Update AI panel and start analysis
-                next_hunk = self.diff_view_panel.get_current_hunk()
-                if next_hunk:
-                    if self.ai_panel:
-                        self.ai_panel.update_hunk(next_hunk)
-                        self.ai_panel.start_analysis(next_hunk, self.ours_branch, self.theirs_branch)
-                    if self.file_list_panel:
-                        self.file_list_panel.set_current_hunk(next_hunk)
+            self.diff_view_panel._refresh_view()
     
     def on_hunk_selected(self, message: HunkSelected) -> None:
         """Handle hunk selection from the file list panel."""
@@ -596,6 +593,22 @@ class MergeResolverApp(App):
         if result is None:
             return
         self.post_message(HunkResolved(hunk, result))
+
+    @work
+    async def on_hunk_suggestion_requested(self, message: HunkSuggestionRequested) -> None:
+        """Fetch Bob's merged-code suggestion off the event loop, then resolve."""
+        import asyncio
+        hunk = message.hunk
+        if self.ai_panel:
+            self.ai_panel.set_generating(True)
+        try:
+            merged = await asyncio.to_thread(
+                suggest_resolution, hunk, self.ours_branch, self.theirs_branch
+            )
+        finally:
+            if self.ai_panel:
+                self.ai_panel.set_generating(False)
+        self.post_message(HunkResolved(hunk, merged, "bob"))
 
     def on_hunk_changed(self, message: HunkChanged) -> None:
         """Handle hunk navigation from the diff view panel."""

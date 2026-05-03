@@ -29,6 +29,7 @@ class ConflictHunk:
     ai_summary: str = ""               # filled by bob.py
     ai_suggestion: str = ""            # filled by bob.py
     resolved_text: str | None = None   # set when user accepts/edits a resolution
+    resolution_source: str | None = None  # "ours", "theirs", "bob", "edit"
     related_files: list[str] | None = None  # files with shared symbols (for structural conflicts)
     
     def __post_init__(self):

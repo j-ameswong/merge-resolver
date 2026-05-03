@@ -187,6 +187,109 @@ def analyse_hunk(
     return hunk
 
 
+RESOLUTION_PROMPT = """You are a merge conflict resolver. Given the following conflict hunk, produce the
+merged code that should replace the entire conflict block (the <<<<<<<, |||||||, =======, >>>>>>> markers
+and everything between them).
+
+Respond with ONLY the merged code. No prose, no explanation, no markdown fences, no leading or trailing
+blank lines beyond what belongs in the code itself. Preserve indentation exactly as it appears in the
+inputs.
+
+File: {file}
+Conflict type: {kind}
+
+=== OURS ({ours_branch}) ===
+{ours_text}
+=== BASE (common ancestor) ===
+{base_text}
+=== THEIRS ({theirs_branch}) ===
+{theirs_text}"""
+
+
+def _call_watsonx_text(prompt: str, api_key: str, max_tokens: int = 800) -> str:
+    """Call watsonx and return the raw generated text (no JSON parsing)."""
+    token = _get_iam_token(api_key)
+    url = "https://us-south.ml.cloud.ibm.com/ml/v1/text/chat?version=2023-05-29"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+    payload = {
+        "messages": [{"role": "user", "content": prompt}],
+        "model_id": "meta-llama/llama-3-3-70b-instruct",
+        "project_id": os.getenv("WATSONX_PROJECT_ID", ""),
+        "max_tokens": max_tokens,
+        "temperature": 0.1,
+    }
+    response = requests.post(url, headers=headers, json=payload, timeout=60)
+    response.raise_for_status()
+    return response.json()["choices"][0]["message"]["content"]
+
+
+def _strip_code_fences(text: str) -> str:
+    """Remove ``` fences if the model wrapped its output despite instructions."""
+    stripped = text.strip()
+    if not stripped.startswith("```"):
+        return text
+    lines = stripped.split("\n")
+    # Drop the opening fence line and a trailing fence if present.
+    if lines and lines[0].startswith("```"):
+        lines = lines[1:]
+    if lines and lines[-1].strip().startswith("```"):
+        lines = lines[:-1]
+    return "\n".join(lines)
+
+
+def suggest_resolution(
+    hunk: ConflictHunk,
+    ours_branch: str,
+    theirs_branch: str,
+) -> str:
+    """
+    Ask the AI backend for merged code that replaces the conflict block.
+
+    Returns the merged code as a string. Falls back to "ours" on any error so the
+    caller always has something usable.
+    """
+    backend = os.getenv("AI_BACKEND", "mock").lower()
+    ours_text = "".join(hunk.ours) if hunk.ours else ""
+    base_text = "".join(hunk.base) if hunk.base else ""
+    theirs_text = "".join(hunk.theirs) if hunk.theirs else ""
+
+    if backend != "watsonx":
+        # Mock: naive union of ours and theirs, deterministic for tests.
+        merged = ours_text
+        if theirs_text and theirs_text != ours_text:
+            if not merged.endswith("\n") and merged:
+                merged += "\n"
+            merged += theirs_text
+        return merged
+
+    try:
+        api_key = os.getenv("WATSONX_API_KEY")
+        if not api_key:
+            raise ValueError("WATSONX_API_KEY environment variable not set")
+        prompt = RESOLUTION_PROMPT.format(
+            file=hunk.file,
+            kind=hunk.kind,
+            ours_branch=ours_branch,
+            ours_text=ours_text,
+            base_text=base_text,
+            theirs_branch=theirs_branch,
+            theirs_text=theirs_text,
+        )
+        raw = _call_watsonx_text(prompt, api_key)
+        merged = _strip_code_fences(raw)
+        if not merged.endswith("\n"):
+            merged += "\n"
+        return merged
+    except Exception as e:
+        print(f"AI resolution error for {hunk.file} hunk {hunk.hunk_index}: {e}")
+        # Fall back to ours so the user gets *something* and can edit it.
+        return ours_text
+
+
 def analyse_all(
     hunks: list[ConflictHunk],
     ours_branch: str,
